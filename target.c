@@ -1,7 +1,9 @@
 #include <stdio.h>
 
-int target_function2() {
+int target_function2(int i) {
   printf("You have visited the target_function2 function, well done!\n");
+  printf("Your argument was %d\n", i);
+  return 0;
 }
 
 int target_function() {
