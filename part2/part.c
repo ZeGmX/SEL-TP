@@ -2,9 +2,11 @@
 #include <sys/user.h>
 #include <stdio.h>
 #include <libelf.h>
+#include <sys/wait.h>
+#include <unistd.h>
 #define SIZE 1024
 
-// Finds the PID of the target process
+// Finds and returns the PID of the target process
 pid_t find_process(char* ownername, char* process) {
     char command[SIZE];
     
@@ -22,9 +24,9 @@ pid_t find_process(char* ownername, char* process) {
     if (pclose(pgrep) != 0) {
         printf("Error : pgrep returned a non-zero value.\nAre you sure this process exists ?\n");
         return 0;
-    } else {
-        return pid;
-    }        
+    }
+
+    return pid;
 }
 
 int get_function_offset(char* target_process, char* target_function) {
@@ -38,7 +40,8 @@ int get_function_offset(char* target_process, char* target_function) {
     }
     unsigned int offset;
 
-    if (fscanf(nm, "%x %*c %*s", &offset) == 0) {
+    int res = fscanf(nm, "%x %*c %*s", &offset);
+    if (res == 0) {
         printf("Error : couldn't match nm output. Are you sure this function exists ?\n");
         return -1;
     }
@@ -59,26 +62,43 @@ void* get_process_memory(pid_t pid) {
 
     char buf[SIZE];
     void* address = 0x0;
-    int res = fscanf(memory_map, "%[0-9a-f][^-]", buf);
-    sscanf(buf, "%px", &address); 
     
-    if (res == 0) {
+    if (fscanf(memory_map, "%[0-9a-f][^-]", buf) == 0) {
         return NULL;
     }
+    sscanf(buf, "%px", &address); 
     fclose(memory_map);
     
     return address;
 }
 
+int write_in_memory(pid_t pid, long address, unsigned char* buffer, int len) {
+    char mem_path[SIZE];
+    sprintf(mem_path, "/proc/%d/mem", pid); 
+    
+    FILE* process_mem = fopen(mem_path, "wb");
+    if (process_mem == NULL) {
+        printf("Error : Failed to open target memory.\n");
+        return 0;
+    }
+    fseek(process_mem, address, SEEK_SET);
+
+    int res = fwrite(buffer, 1, len, process_mem);
+    printf("Wrote %d byte(s) into memory.\n", res);
+
+    fclose(process_mem);
+    return res;
+}
+
 int run(int argc, char** argv) {
-    if (argc != 4) {
-        printf("Usage : ./tp [ownername] [processname] [functionname]\n");
+    if (argc != 3) {
+        printf("Usage : ./tp [processname] [functionname]\n");
         return -1;
     }
 
-    char* ownername = argv[1];
-    char* target_process = argv[2];
-    char* target_function = argv[3];
+    char* ownername = getlogin();
+    char* target_process = argv[1];
+    char* target_function = argv[2];
 
     pid_t pid = find_process(ownername, target_process);
     if (pid == 0) {
@@ -106,16 +126,19 @@ int run(int argc, char** argv) {
     printf("Target process memory starts at : %p\n", start_address);
     
     unsigned char instr = 0xCC;
-    char mem_path[SIZE];
-    sprintf(mem_path, "/proc/%d/mem", pid); 
-    
-    FILE* process_mem = fopen(mem_path, "wb");
-    fseek(process_mem,(long) start_address+offset, SEEK_SET);
-    fwrite(&instr, 1, 1, process_mem);
-    printf("Instruction placed.\n");
-    
-    fclose(process_mem);
+
+    if (write_in_memory(pid, (long) start_address+offset, &instr, 1) == 0) {
+        printf("Could not write in target process memory. Exiting...\n");
+        return -1;
+    }
+    int status;
+    struct user_regs_struct regs;
     ptrace(PTRACE_CONT, pid, NULL, NULL);
+    while (WSTOPSIG(status) != 5) wait(&status);
+    printf("Got a signal : %s\n", strsignal(WSTOPSIG(status)));
+    ptrace(PTRACE_GETREGS, pid, 0, &regs);
+    printf("%llx\n", regs.rip);
+    ptrace(PTRACE_DETACH, pid, NULL, NULL);
 
     return 0;
 }

@@ -1,10 +1,9 @@
 #include <stdio.h>
-#define CHALLENGE test
 
 extern int run(int argc, char** argv);
 
 int main(int argc, char** argv) {
-    printf("CHALLENGE");
+    printf("CHALLENGE %d\n", PART);
     return run(argc, argv); 
 }
 
