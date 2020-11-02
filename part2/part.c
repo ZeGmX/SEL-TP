@@ -73,7 +73,7 @@ void* get_process_memory(pid_t pid) {
     return address;
 }
 
-int write_in_memory(pid_t pid, long address, unsigned char* buffer, int len, char* override) {
+int write_in_memory(pid_t pid, long address, unsigned char* buffer, int len, unsigned char* override) {
     char mem_path[SIZE];
     sprintf(mem_path, "/proc/%d/mem", pid);
 
@@ -162,7 +162,7 @@ int run(int argc, char** argv) {
     ptrace(PTRACE_GETREGS, pid, 0, &new_regs);
     printf("Return value: %lld\n", new_regs.rax);
 
-    old_regs.rip = start_address + offset; //
+    old_regs.rip = (long)start_address + offset; // Otherwise it is 1 instruction after
     write_in_memory(pid, (long)start_address + offset, override, 4, NULL);
     ptrace(PTRACE_SETREGS, pid, 0, &old_regs);
 
