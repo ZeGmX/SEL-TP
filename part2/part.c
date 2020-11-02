@@ -73,16 +73,20 @@ void* get_process_memory(pid_t pid) {
     return address;
 }
 
-int write_in_memory(pid_t pid, long address, unsigned char* buffer, int len) {
+int write_in_memory(pid_t pid, long address, unsigned char* buffer, int len, char* override) {
     char mem_path[SIZE];
     sprintf(mem_path, "/proc/%d/mem", pid);
 
-    FILE* process_mem = fopen(mem_path, "wb");
+    FILE* process_mem = fopen(mem_path, "r+b");
     if (process_mem == NULL) {
         printf("Error : Failed to open target memory.\n");
         return 0;
     }
     fseek(process_mem, address, SEEK_SET);
+    if (override != NULL) {
+        fread(override, 1, len, process_mem);
+        fseek(process_mem, address, SEEK_SET);
+    }
 
     int res = fwrite(buffer, 1, len, process_mem);
     printf("Wrote %d byte(s) into memory.\n", res);
@@ -128,9 +132,11 @@ int run(int argc, char** argv) {
     }
     printf("Target process memory starts at : %p\n", start_address);
 
+    unsigned char override[4];
+
     unsigned char instr_trap = 0xCC;
 
-    if (write_in_memory(pid, (long) start_address+offset, &instr_trap, 1) == 0) {
+    if (write_in_memory(pid, (long) start_address+offset, &instr_trap, 1, override) == 0) {
         printf("Could not write in target process memory. Exiting...\n");
         return -1;
     }
@@ -147,8 +153,8 @@ int run(int argc, char** argv) {
     regs.rdi = 42; // first argument
     ptrace(PTRACE_SETREGS, pid, 0, &regs);
     unsigned char call[2] = {0xFF, 0xD0};
-    write_in_memory(pid, (long)start_address + offset + 1, call, 2);
-    write_in_memory(pid, (long)start_address + offset + 3, &instr_trap, 1);
+    write_in_memory(pid, (long)start_address + offset + 1, call, 2, override + 1);
+    write_in_memory(pid, (long)start_address + offset + 3, &instr_trap, 1, override + 3);
 
     int status2;
     ptrace(PTRACE_CONT, pid, NULL, NULL);
@@ -156,9 +162,11 @@ int run(int argc, char** argv) {
     ptrace(PTRACE_GETREGS, pid, 0, &new_regs);
     printf("Return value: %lld\n", new_regs.rax);
 
-    old_regs.rip = old_regs.rip + 4;
+    old_regs.rip = start_address + offset; //
+    write_in_memory(pid, (long)start_address + offset, override, 4, NULL);
     ptrace(PTRACE_SETREGS, pid, 0, &old_regs);
 
+    ptrace(PTRACE_GETREGS, pid, 0, &new_regs);
 
     ptrace(PTRACE_DETACH, pid, NULL, NULL);
 
