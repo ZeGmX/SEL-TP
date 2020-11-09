@@ -14,9 +14,10 @@ int target_function() {
     return a;
 }
 
-int other_target(int a) {
-    int b = a*2;
-    return b+5;
+void target_function3(int* a) {
+    printf("You have visited the target_function3 function, well done!\n");
+    printf("Address: %p, value: %d\n", a, *a);
+    *a = 42;
 }
 
 int main(int argc, char** argv) {
