@@ -151,33 +151,49 @@ int run(int argc, char** argv) {
     printf("%llx\n", regs.rip);
 
     regs.rax = (long)start_address + offset2;
-    // For some reason the immediate value has to be reversed ...
-    unsigned char push[5] = {0x68, 0x10, 0x00, 0x00, 0x00};
-    unsigned char pop[1] = {0x5F};
 
-    // others arguments would be in rsi and rdx
-    regs.rdi = old_regs.rsp - 8; // first argument
-    ptrace(PTRACE_SETREGS, pid, 0, &regs);
-    unsigned char call[2] = {0xFF, 0xD0};
-    write_in_memory(pid, (long)start_address + offset + 1, push, 5, override + 1);
-    write_in_memory(pid, (long)start_address + offset + 6, call, 2, override + 6);
-    write_in_memory(pid, (long)start_address + offset + 8, pop, 1, override + 8);
-    write_in_memory(pid, (long)start_address + offset + 9, &instr_trap, 1, override + 9);
-    //write_in_memory(pid, (long)start_address + offset + 1, call, 2, override + 1);
-    //write_in_memory(pid, (long)start_address + offset + 3, &instr_trap, 1, override + 3);
+    int is_pointer = 0;
+
+    if (is_pointer) {
+        // For some reason the immediate value has to be reversed ...
+        unsigned char push[5] = {0x68, 0x10, 0x00, 0x00, 0x00};
+        unsigned char pop[1] = {0x5F};
+
+        // others arguments would be in rsi and rdx
+        regs.rdi = old_regs.rsp - 8; // first argument
+
+        ptrace(PTRACE_SETREGS, pid, 0, &regs);
+        unsigned char call[2] = {0xFF, 0xD0};
+
+        write_in_memory(pid, (long)start_address + offset + 1, push, 5, override + 1);
+        write_in_memory(pid, (long)start_address + offset + 6, call, 2, override + 6);
+        write_in_memory(pid, (long)start_address + offset + 8, pop, 1, override + 8);
+        write_in_memory(pid, (long)start_address + offset + 9, &instr_trap, 1, override + 9);
+
+    } else {
+        regs.rdi = 42;
+        ptrace(PTRACE_SETREGS, pid, 0, &regs);
+        unsigned char call[2] = {0xFF, 0xD0};
+
+        write_in_memory(pid, (long)start_address + offset + 1, call, 2, override + 1);
+        write_in_memory(pid, (long)start_address + offset + 3, &instr_trap, 1, override + 3);
+    }
 
     int status2;
     ptrace(PTRACE_CONT, pid, NULL, NULL);
     while (WSTOPSIG(status2) != 5) wait(&status2);
     ptrace(PTRACE_GETREGS, pid, 0, &new_regs);
-    printf("Return value: %lld\n", new_regs.rax);
-    printf("%lld\n", new_regs.rdi);
     old_regs.rip = (long)start_address + offset; // Otherwise it is 1 instruction after
-    write_in_memory(pid, (long)start_address + offset, override, 9, NULL);
-    //write_in_memory(pid, (long)start_address + offset, override, 4, NULL);
-    ptrace(PTRACE_SETREGS, pid, 0, &old_regs);
 
-    ptrace(PTRACE_GETREGS, pid, 0, &new_regs);
+    if (is_pointer) {
+        printf("New pointer value: %lld\n", new_regs.rdi);
+        write_in_memory(pid, (long)start_address + offset, override, 10, NULL);
+    } else {
+        printf("Return value: %lld\n", new_regs.rax);
+        write_in_memory(pid, (long)start_address + offset, override, 4, NULL);
+    }
+
+    ptrace(PTRACE_SETREGS, pid, 0, &old_regs);
 
     ptrace(PTRACE_DETACH, pid, NULL, NULL);
 
