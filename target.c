@@ -1,3 +1,4 @@
+#include <unistd.h>
 #include <stdio.h>
 
 int target_function2(int i) {
@@ -24,6 +25,7 @@ int main(int argc, char** argv) {
     int var;
     while(1) {
         var = target_function();
+        printf("%lx\n", &getpid);
     }
 
     return 0;
