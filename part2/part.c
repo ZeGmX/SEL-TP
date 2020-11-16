@@ -113,7 +113,10 @@ int run(int argc, char** argv) {
     }
     printf("Found process ID : %d\n", pid);
 
+    int status;
     ptrace(PTRACE_ATTACH, pid, NULL, NULL);
+    wait(&status);
+    // TODO add wait
 
     // We're now attached to the process, so we should be able to read its memory
 
@@ -141,18 +144,22 @@ int run(int argc, char** argv) {
         printf("Could not write in target process memory. Exiting...\n");
         return -1;
     }
-    int status;
+
+    // old_regs is used as a backup, regs is modified and new_regs is used to
+    // get the return value
     struct user_regs_struct old_regs, regs, new_regs;
+
     ptrace(PTRACE_CONT, pid, NULL, NULL);
-    while (WSTOPSIG(status) != 5) wait(&status);
+    wait(&status);
     printf("Got a signal : %s\n", strsignal(WSTOPSIG(status)));
+
     ptrace(PTRACE_GETREGS, pid, 0, &old_regs);
     ptrace(PTRACE_GETREGS, pid, 0, &regs);
-    printf("%llx\n", regs.rip);
 
     regs.rax = (long)start_address + offset2;
 
-    int is_pointer = 0;
+    // If the function we want to modify has an int or int* argument
+    int is_pointer = 1;
 
     if (is_pointer) {
         // For some reason the immediate value has to be reversed ...
@@ -169,6 +176,7 @@ int run(int argc, char** argv) {
         write_in_memory(pid, (long)start_address + offset + 6, call, 2, override + 6);
         write_in_memory(pid, (long)start_address + offset + 8, pop, 1, override + 8);
         write_in_memory(pid, (long)start_address + offset + 9, &instr_trap, 1, override + 9);
+        // TODO all in one write
 
     } else {
         regs.rdi = 42;
@@ -179,11 +187,12 @@ int run(int argc, char** argv) {
         write_in_memory(pid, (long)start_address + offset + 3, &instr_trap, 1, override + 3);
     }
 
-    int status2;
     ptrace(PTRACE_CONT, pid, NULL, NULL);
-    while (WSTOPSIG(status2) != 5) wait(&status2);
+    wait(&status);
+
     ptrace(PTRACE_GETREGS, pid, 0, &new_regs);
-    old_regs.rip = (long)start_address + offset; // Otherwise it is 1 instruction after
+    // Otherwise it is 1 instruction after
+    old_regs.rip = (long)start_address + offset;
 
     if (is_pointer) {
         printf("New pointer value: %lld\n", new_regs.rdi);
