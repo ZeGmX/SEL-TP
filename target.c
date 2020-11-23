@@ -25,7 +25,7 @@ int main(int argc, char** argv) {
     int var;
     while(1) {
         var = target_function();
-        printf("%lx\n", &getpid);
+        printf("Main here\n");
     }
 
     return 0;
