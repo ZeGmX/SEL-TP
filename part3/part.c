@@ -52,7 +52,7 @@ int get_function_offset(char* target_process, char* target_function) {
     return offset;
 }
 
-// Returns a pointer to the start of the memory section of the target.
+// Returns a pointer to the start of the code of the target
 void* get_process_memory(pid_t pid) {
     char filename[SIZE];
     sprintf(filename, "/proc/%d/maps", pid);
@@ -75,6 +75,7 @@ void* get_process_memory(pid_t pid) {
     return address;
 }
 
+// Returns a pointer to the start of the libc section of the target
 void* get_libc_memory(pid_t pid) {
     char filename[SIZE];
     char command[2 * SIZE];
@@ -148,10 +149,11 @@ int run(int argc, char** argv) {
     void* tracer_libc = get_libc_memory(tracer_pid);
     void* tracee_libc = get_libc_memory(tracee_pid);
 
+    // Computing the addres of the posix_memalign and mprotect functions
     long posix_offset = (long)&posix_memalign - (long)tracer_libc;
     long mprotect_offset = (long)&mprotect - (long)tracer_libc;
-    long posix_memalign_address = tracee_libc + posix_offset;
-    long mprotect_address = tracee_libc + mprotect_offset;
+    long posix_memalign_address = (long)tracee_libc + posix_offset;
+    long mprotect_address = (long)tracee_libc + mprotect_offset;
 
     printf("Found posix_memalign address: %lx\n", posix_memalign_address);
     printf("Found mprotect address: %lx\n", mprotect_address);
@@ -178,19 +180,19 @@ int run(int argc, char** argv) {
     ptrace(PTRACE_GETREGS, tracee_pid, 0, &old_regs);
     ptrace(PTRACE_GETREGS, tracee_pid, 0, &regs);
 
-    regs.rax = posix_memalign_address;
-
-    unsigned char push[5] = {0x68, 0x00, 0x00, 0x00, 0x00};
     // Pointer that will be overriden by posix_memalign
+    unsigned char push[5] = {0x68, 0x00, 0x00, 0x00, 0x00};
+    unsigned char call[2] = {0xFF, 0xD0};
     unsigned char pop[1] = {0x5F};
 
+    // Adress called
+    regs.rax = posix_memalign_address;
     // Arguments of posix_memalign
     regs.rdi = old_regs.rsp - 8;    // void** memptr
     regs.rsi = getpagesize();       // size_t alignement
     regs.rdx = sizetowrite;         // size_t size
 
     ptrace(PTRACE_SETREGS, tracee_pid, 0, &regs);
-    unsigned char call[2] = {0xFF, 0xD0};
 
     write_in_memory(tracee_pid, (long)start_address + fun_offset + 1, push, 5, override + 1);
     write_in_memory(tracee_pid, (long)start_address + fun_offset + 6, call, 2, override + 6);
@@ -202,13 +204,14 @@ int run(int argc, char** argv) {
 
     ptrace(PTRACE_GETREGS, tracee_pid, 0, &new_regs);
 
-    printf("New pointer value: %llx\n", new_regs.rdi);
+    long allocated_adress = new_regs.rdi;
+    printf("New pointer value: %lx\n", allocated_adress);
+
 
     new_regs.rax = mprotect_address;
-
-    // rdi is already ok
-    new_regs.rsi = sizetowrite;
-    new_regs.rdx = PROT_EXEC;
+    // rdi is already ok -          void* address
+    new_regs.rsi = sizetowrite; //  size_t len
+    new_regs.rdx = PROT_EXEC | PROT_READ | PROT_WRITE;   //  int prot
     ptrace(PTRACE_SETREGS, tracee_pid, 0, &new_regs);
 
     write_in_memory(tracee_pid, (long)start_address + fun_offset + 10, call, 2, override + 10);
@@ -223,6 +226,18 @@ int run(int argc, char** argv) {
 
     old_regs.rip = (long)start_address + fun_offset;
     write_in_memory(tracee_pid, (long)start_address + fun_offset, override, 13, NULL);
+
+    // Code of taget_function2
+    unsigned char function_code[52] = { 0x55, 0x48, 0x89, 0xe5, 0x48, 0x83, 0xec,
+        0x10, 0x89, 0x7d, 0xfc, 0x48, 0x8d, 0x3d, 0x8d, 0x0e, 0x00, 0x00, 0xe8,
+        0xb0, 0xfe, 0xff, 0xff, 0x8b, 0x45, 0xfc, 0x89, 0xc6, 0x48, 0x8d, 0x3d,
+        0xb7, 0x0e, 0x00, 0x00, 0xb8, 0x00, 0x00, 0x00, 0x00, 0xe8, 0xba, 0xfe,
+        0xff, 0xff, 0xb8, 0x2b, 0x00, 0x00, 0x00, 0xc9, 0xc3};
+
+    if (sizetowrite != 52) printf("This is not meant to wrint code with size \
+different to 52, got %d\n", sizetowrite);
+
+    else write_in_memory(tracee_pid, allocated_adress, function_code, sizetowrite, NULL);
 
     ptrace(PTRACE_SETREGS, tracee_pid, 0, &old_regs);
 
