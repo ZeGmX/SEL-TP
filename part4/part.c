@@ -121,6 +121,8 @@ int write_in_memory(pid_t pid, long address, unsigned char* buffer, int len, uns
     return res;
 }
 
+
+
 int run(int argc, char** argv) {
     if (argc != 4) {
         printf("Usage : ./tp [processname] [functionname] [sizetowrite]\n");
@@ -158,9 +160,20 @@ int run(int argc, char** argv) {
     printf("Found posix_memalign address: %lx\n", posix_memalign_address);
     printf("Found mprotect address: %lx\n", mprotect_address);
 
-    unsigned char override[13];
-    unsigned char instr_trap = 0xCC;
-    if (write_in_memory(tracee_pid, (long) start_address+fun_offset, &instr_trap, 1, override) == 0) {
+    // Initial code for calling posix_memalign and mprotect
+    unsigned char code_call[] = {
+        0xCC,                           // trap
+        0x68, 0x00, 0x00, 0x00, 0x00,   // push -> Pointer that will be overriden by posix_memalign
+        0xFF, 0xD0,                     // call rax -> posix_memalign
+        0x5F,                           // pop rdi
+        0xCC,                           // trap
+        0xFF, 0xD0,                     // call rax -> mprotect
+        0xCC                            //trap
+    };
+    // To save the overriden instructions
+    unsigned char override[sizeof(code_call)];
+
+    if (write_in_memory(tracee_pid, (long) start_address+fun_offset, code_call, sizeof(code_call), override) == 0) {
         printf("Could not write in target process memory. Exiting...\n");
         return -1;
     }
@@ -170,20 +183,18 @@ int run(int argc, char** argv) {
     struct user_regs_struct old_regs, regs, new_regs;
 
     ptrace(PTRACE_CONT, tracee_pid, NULL, NULL);
+
     wait(&status);
     // The more the merier
     // Don't ask any question
     wait(&status);
     wait(&status);
+    // *** First trap ***
+
     printf("Got a signal : %s\n", strsignal(WSTOPSIG(status)));
 
     ptrace(PTRACE_GETREGS, tracee_pid, 0, &old_regs);
     ptrace(PTRACE_GETREGS, tracee_pid, 0, &regs);
-
-    // Pointer that will be overriden by posix_memalign
-    unsigned char push[5] = {0x68, 0x00, 0x00, 0x00, 0x00};
-    unsigned char call[2] = {0xFF, 0xD0};
-    unsigned char pop[1] = {0x5F};
 
     // Adress called
     regs.rax = posix_memalign_address;
@@ -194,19 +205,14 @@ int run(int argc, char** argv) {
 
     ptrace(PTRACE_SETREGS, tracee_pid, 0, &regs);
 
-    write_in_memory(tracee_pid, (long)start_address + fun_offset + 1, push, 5, override + 1);
-    write_in_memory(tracee_pid, (long)start_address + fun_offset + 6, call, 2, override + 6);
-    write_in_memory(tracee_pid, (long)start_address + fun_offset + 8, pop, 1, override + 8);
-    write_in_memory(tracee_pid, (long)start_address + fun_offset + 9, &instr_trap, 1, override + 9);
-
     ptrace(PTRACE_CONT, tracee_pid, NULL, NULL);
     wait(&status);
+    // *** Second trap ***
 
     ptrace(PTRACE_GETREGS, tracee_pid, 0, &new_regs);
 
     long allocated_adress = new_regs.rdi;
-    printf("New pointer value: %lx\n", allocated_adress);
-
+    printf("Allocated address: %lx\n", allocated_adress);
 
     new_regs.rax = mprotect_address;
     // rdi is already ok -          void* address
@@ -214,44 +220,47 @@ int run(int argc, char** argv) {
     new_regs.rdx = PROT_EXEC | PROT_READ | PROT_WRITE;   //  int prot
     ptrace(PTRACE_SETREGS, tracee_pid, 0, &new_regs);
 
-    write_in_memory(tracee_pid, (long)start_address + fun_offset + 10, call, 2, override + 10);
-    write_in_memory(tracee_pid, (long)start_address + fun_offset + 12, &instr_trap, 1, override + 12);
-
-
     ptrace(PTRACE_CONT, tracee_pid, NULL, NULL);
     wait(&status);
+    // ** Third trap **
+    // At the end -> restauration and writing the jmp and the function code
+
+    // Restoring the initial code
+    write_in_memory(tracee_pid, (long) start_address + fun_offset, override, sizeof(override), NULL);
 
     ptrace(PTRACE_GETREGS, tracee_pid, 0, &new_regs);
     printf("memprotec's return value: %lld\n", new_regs.rax);
 
     old_regs.rip = (long)start_address + fun_offset;
-    write_in_memory(tracee_pid, (long)start_address + fun_offset, override, 13, NULL);
 
-    // Code of taget_function2
-    unsigned char function_code[52] = { 0x55, 0x48, 0x89, 0xe5, 0x48, 0x83, 0xec,
-        0x10, 0x89, 0x7d, 0xfc, 0x48, 0x8d, 0x3d, 0x8d, 0x0e, 0x00, 0x00, 0xe8,
-        0xb0, 0xfe, 0xff, 0xff, 0x8b, 0x45, 0xfc, 0x89, 0xc6, 0x48, 0x8d, 0x3d,
-        0xb7, 0x0e, 0x00, 0x00, 0xb8, 0x00, 0x00, 0x00, 0x00, 0xe8, 0xba, 0xfe,
-        0xff, 0xff, 0xb8, 0x2b, 0x00, 0x00, 0x00, 0xc9, 0xc3};
+    // Code of the "optimised" function
+    unsigned char function_code[11] = {
+        0x55, 0x48, 0x89, 0xe5, 0xb8, 0x01, 0x00, 0x00, 0x00, 0x5d, 0xc3
+    };
 
-    if (sizetowrite != 52) printf("This is not meant to wrint code with size \
-different to 52, got %d\n", sizetowrite);
+    if (sizetowrite != 11) {
+        printf("This is not meant to wrint code with size different to 11, got %d\n", sizetowrite);
+        return -1;
+    }
 
-    else write_in_memory(tracee_pid, allocated_adress, function_code, sizetowrite, NULL);
+    // Writing the optimised code on the heap
+    write_in_memory(tracee_pid, allocated_adress, function_code, sizetowrite, NULL);
 
-
-    unsigned char jump_rax[2] = {0x48, 0xB8};
+    unsigned char move_rax[2] = {0x48, 0xB8};
+    unsigned char jump_rax[2] = {0xFF, 0xE0};
+    // To automatically convert from long to the (reversed) byte array
     union {
         long address;
-        char array[8];
+        unsigned char array[8];
     } add_union;
     add_union.address = allocated_adress;
 
-    write_in_memory(tracee_pid, (long)start_address + fun_offset, jump_rax, 2, NULL);
+    // Writing the mov rax, jmp rax
+    write_in_memory(tracee_pid, (long)start_address + fun_offset, move_rax, 2, NULL);
     write_in_memory(tracee_pid, (long)start_address + fun_offset + 2, add_union.array, 8, NULL);
+    write_in_memory(tracee_pid, (long)start_address + fun_offset + 10, jump_rax, 2, NULL);
 
     ptrace(PTRACE_SETREGS, tracee_pid, 0, &old_regs);
-
     ptrace(PTRACE_DETACH, tracee_pid, NULL, NULL);
 
     return 0;

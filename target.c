@@ -17,8 +17,12 @@ int target_function() {
 
 void target_function3(int* a) {
     printf("You have visited the target_function3 function, well done!\n");
-    printf("Address: %p, value: %d\n", a, *a);
+    printf("Address: %p, value\n", a);
     *a = 42;
+}
+
+int optimised() {
+    return 1;
 }
 
 int main(int argc, char** argv) {
@@ -26,6 +30,7 @@ int main(int argc, char** argv) {
     while(1) {
         var = target_function();
         printf("Main here\n");
+        printf("%d\n", var);
     }
 
     return 0;
