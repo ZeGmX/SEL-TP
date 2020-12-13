@@ -178,7 +178,7 @@ int run(int argc, char** argv) {
         printf("Could not obtain process ID. Exiting...\n");
         exit(1);
     }
-    printf("Found process ID : %d\n", target_pid);
+    printf("Found process ID: %d\n", target_pid);
 
     // Attaching to the target
     int status;
@@ -233,7 +233,7 @@ int run(int argc, char** argv) {
     long mprotect_address = (long)target_libc + mprotect_offset;
     long target_address = (long)start_address + fun_offset;
     
-    printf("Found target function address 0x%lx\n", target_address);
+    printf("Found target function address: 0x%lx\n", target_address);
     printf("Found posix_memalign address: 0x%lx\n", memalign_address);
     printf("Found mprotect address: 0x%lx\n", mprotect_address);
     printf("----------------\nHijacking target function...\n");
