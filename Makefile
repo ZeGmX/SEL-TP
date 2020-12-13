@@ -15,7 +15,6 @@ OBJ = $(SRC:%.c=%.o)
 
 all: clean $(BIN) $(TARGET)
 
-
 clean:
 	rm -f *.o
 
