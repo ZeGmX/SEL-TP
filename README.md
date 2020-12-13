@@ -29,6 +29,7 @@ int run(int argc, char** argv);
 
 Les trois premières parties ont été validées.  
 Voici le fonctionnement de la quatrième partie:
+
 * On récupère les arguments (nom du processus, nom de la fonction, taille du code à écrire) et on calcule les pids des processus traçant et tracé.
 * On calcule les adresses des fonctions `posix_memalign` et `mprotect` dans l'espace d'adressage du tracé. Pour cela on calcule l'offset de ces fonctions dans l'espace d'adressage du traçant en utilisant l'adresse (virtuelle) de la fonction et le résultat de `get_libc_memory`. L'offset étant le même pour le processus tracé, on a donc l'adresse de la fonction sur le processus tracé.
 * On écrit les instructions pour les appels à `posix_memalign` et `mprotect` avec gestion des registres à chaque `trap`.
@@ -37,11 +38,26 @@ Voici le fonctionnement de la quatrième partie:
 
 #### Améliorations possibles
 
+* Dans les différentes parties, nous avons montré comment passer jusqu'à trois arguments en paramètres de fonction, utilisant les registres, cependant pour un plus grand nombre d'arguments, le fonctionnement est différent et n'as pas été implémenté.
+
 * Notre implémentation ne peut actuellement écrire qu'une seule fonction particulière, qui est écrit directement dans le fichier `part4/part.c` (qui correspond au code de la fonction `optimised` du fichier `target.c`). Il pourrait être intéressant de remplacer le paramètre de taille par un chemin vers un fichier contenant les instructions à écrire.
 
 * On ne peut actuellement pas remplacer la fonction optimisée par une fonction faisant des appels à d'autres fonctions. En effet, si les `call` sont à des adresses relatives, le code ne sera plus correcte lorsqu'on le met dans le tas. On pourrait éventuellement remplacer toutes les instructions `call` relatives par des `call` absolus (il existe peut-être une option de compilation permettant cela).
 
+* Même si on résolvait le problème précédent, cela ne résoudrait pas des problèmes tels qu'un appel de fonction en utilisant une variable statique non définie dans le tracé (par exemple une chaîne de caractère pour `printf`). Il faudrait ici allouer de la place pour placer la chaîne et remplacer son adresse initiale relative (obtenue en la compilant) par une adresse absolue.
+
 #### Challenge bonus
+
+##### Remplacement des appels
+
+Pour remplacer les appels à la fonction non-optimisée par les appels à la fonction optimisée, deux options sont possibles:
+
+* On implémente une sorte de `parser` d'instrucions x86 pour identifier les `call` et les remplacer par des `call` absolus à l'adresse de la fonction optimisée (en ajoutant éventuellement un instruction pour mettre l'adresse dans un registre si besoin) ou en recalculant l'*offset*.
+* On utilise la sortie de `objdump` pour identifier plus facilement les `call` puis on applique la même idée que pour la première option.
+
+Cependant, devoir ajouter une instruction pour mettre l'adresse dans un registre demanderait de décaler les instructions suivantes, pouvant déborder sur une zone non allouée. Recalculer l'*offset* serait donc probablement l'option à privilégier.
+
+##### Multi-threads
 
 **TODO**
 
@@ -52,6 +68,40 @@ Voici le fonctionnement de la quatrième partie:
 * Pour compiler la partie `i, i = 1, 2, 3 ou 4`, utiliser la commande `make PART=i`.
 * Lancer le processus tracé avec `./target`.
 * Lancer le processus traçant avec `./tp` suivi des arguments nécessaire pour la partie. Utiliser la commande `./tp` affichera un message d'erreur indiquand quels sont les arguments attendus pour la partie. Pour la partie 4, vous pouvez utiliser `./tp target target_function 11`.
-* Si vous utilisez le processus `target`, entrez une valeur entière dans son terminal pour que le tracé puisse reprendre (il attend sur un `scanf`) et que le traçant fasse son travail.
+* Si vous utilisez le processus `target`, attendez quelques instants (`target` contient une instruction `sleep(5)`).
+
+Une execution correcte de la partie 4 devrait ressembler à ceci:
+```
+CHALLENGE 4
+Found process ID : 4744
+Found target function address 55810615e155
+Found posix_memalign address: 7f27772a9d90
+Found mprotect address: 7f2777318200
+Wrote 13 byte(s) into memory.
+Target got a signal : Trace/breakpoint trap
+Allocated address: 558107ee8000
+Wrote 13 byte(s) into memory.
+Target process ran mprotect successfully.
+Wrote 11 byte(s) into memory.
+Wrote 2 byte(s) into memory.
+Wrote 8 byte(s) into memory.
+Wrote 2 byte(s) into memory.
+```
+Le processus tracé quant à lui devrait avoir un comportement similaire au suivant (addresses may vary):
+```
+This program will run target_function every 5 seconds.
+Running main loop...
+Entering original target_function!
+Return value: 5
+Running main loop...
+Entering original target_function!
+Return value: 5
+Running main loop...   <- code injection happened here
+Return value: 1
+Running main loop...
+Return value: 1
+Running main loop...
+Return value: 1
+```
 
 </div>
