@@ -24,7 +24,7 @@ int run(int argc, char** argv);
 * `get_function_offset` renvoie le décalage entre le début de la section texte et le code de la fonction `target_function` pour le processus `target_process`.
 * `get_process_memory` renvoie un pointeur vers le début de la section texte du processus.
 * `get_libc_memory` est assez similaire à `get_process_memory`, elle renvoie un pointeur vers le début de la libc pour le processus.
-* `write_in_memory` écrit la séquence d'instruction `buffer` à l'addresse `address` du processus. Les instructions écrasées sont sauvegardées dans `override` s'il n'est pas `NULL`.
+* `write_in_memory` écrit la séquence d'instruction `buffer` à l'adresse `address` du processus. Les instructions écrasées sont sauvegardées dans `override` s'il n'est pas `NULL`.
 * `get_injected_code` ouvre et lit le fichier donné, renvoyant un pointeur vers un tableau contenant les octets de ce fichier. La longueur du tableau est mise dans le pointeur `len`.
 * `run` est la fonction principale, appelée par le `main` (nous avons un dossier par partie et `main` appelle le `run` du fichier utilisé pour la compilation).
 
@@ -44,9 +44,7 @@ Voici le fonctionnement de la quatrième partie:
 #### Améliorations possibles
 
 * Dans les différentes parties, nous avons montré comment passer jusqu'à trois arguments en paramètres de fonction, utilisant les registres, cependant pour un plus grand nombre d'arguments, le fonctionnement est différent et n'as pas été implémenté.
-
 * On ne peut actuellement pas remplacer la fonction optimisée par une fonction faisant des appels à d'autres fonctions. En effet, si les `call` sont à des adresses relatives, le code ne sera plus correcte lorsqu'on le met dans le tas. On pourrait éventuellement remplacer toutes les instructions `call` relatives par des `call` absolus (il existe peut-être une option de compilation permettant cela).
-
 * Même si on résolvait le problème précédent, cela ne résoudrait pas des problèmes tels qu'un appel de fonction en utilisant une variable statique non définie dans le tracé (par exemple une chaîne de caractère pour `printf`). Il faudrait ici allouer de la mémoire pour placer la chaîne dans le tracé, et remplacer l'adresse dans l'appel à `printf`.
 
 #### Challenge bonus
