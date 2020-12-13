@@ -52,14 +52,25 @@ Voici le fonctionnement de la quatrième partie:
 
 Pour remplacer les appels à la fonction non-optimisée par les appels à la fonction optimisée, deux options sont possibles:
 
-* On implémente une sorte de `parser` d'instrucions x86 pour identifier les `call` et les remplacer par des `call` absolus à l'adresse de la fonction optimisée (en ajoutant éventuellement un instruction pour mettre l'adresse dans un registre si besoin) ou en recalculant l'*offset*.
+* On implémente une sorte de `parser` d'instructions x86 pour identifier les `call` et les remplacer par des `call` absolus à l'adresse de la fonction optimisée (en ajoutant éventuellement un instruction pour mettre l'adresse dans un registre si besoin) ou en recalculant l'*offset*.
 * On utilise la sortie de `objdump` pour identifier plus facilement les `call` puis on applique la même idée que pour la première option.
 
 Cependant, devoir ajouter une instruction pour mettre l'adresse dans un registre demanderait de décaler les instructions suivantes, pouvant déborder sur une zone non allouée. Recalculer l'*offset* serait donc probablement l'option à privilégier.
 
-##### Multi-threads
+##### Multi-*threads*
 
-**TODO**
+Pour généraliser cette injection de code, on s'intéresse au cas multi-*thread* .   
+Ce qui ne change pas :
+
+* Le principe d'appel de fonction, on place les paramètres dans les registres, on fait un `call`, etc.
+* Les *threads* partageant le même tas, l'allocation de mémoire pour écrire la fonction optimisée fonctionnera sur le même principe.
+* Le remplacement des appels (ou la méthode trampoline) seront identiques puisque le code n'est pas dupliqué sur les *threads*.
+
+Les nouvelles difficultés :
+
+* On doit s'assurer qu'un seul des *threads* fasse un appel à `posix_memalign`. Même si plusieurs appels ne sont pas intrinsèquement gênants, il serait souhaitable de ne pas allouer de mémoire inutilement.
+* On doit relancer chaque *thread*, et sauvegarder/restaurer les registres pour chaque *thread*.
+* Pour les appels de fonctions, il faut faire attention à modifier les registres du bon *thread* (celui qui va passer par l'instruction `call`) puisque chaque *thread* possède son propre jeu de registres.
 
 #### Comment utiliser
 
@@ -87,7 +98,7 @@ Wrote 2 byte(s) into memory.
 Wrote 8 byte(s) into memory.
 Wrote 2 byte(s) into memory.
 ```
-Le processus tracé quant à lui devrait avoir un comportement similaire au suivant (addresses may vary):
+Le processus tracé quant à lui devrait avoir un comportement similaire au suivant (les adresses peuvent différer):
 ```
 This program will run target_function every 5 seconds.
 Running main loop...
